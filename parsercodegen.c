@@ -72,10 +72,6 @@ typedef struct {
 } instruction;
 
 //define structs HW4
-typedef struct {
-    symbol symbolTable[MAX_SYMBOL_TABLE_SIZE];
-} symbolTable_t;
-
 
 //define reserved word arrays
 char *word[ ] ={
@@ -98,8 +94,8 @@ char symbols[] = {'+', '-', '*', '/', '(', ')', '=', ',', '.', '<', '>', ';', ':
 int lenSymbols = 13;
 
 //define symbol table and code
-symbol symbolTable[MAX_SYMBOL_TABLE_SIZE];
-instruction code[MAX_SYMBOL_TABLE_SIZE];
+symbol* symbolTable;          
+instruction* code; 
 
 //function prototypes HW2
 void printLexemeList();
@@ -1150,6 +1146,8 @@ int main(int argc, char *argv[]){
     //estimated max size is 2*size for lexemelist
     codeArray = malloc(sizeof(char) * size);
     lexemelist = malloc(sizeof(char) * 2*size);
+    symbolTable = malloc(MAX_SYMBOL_TABLE_SIZE * sizeof(symbol));
+    code = malloc(MAX_SYMBOL_TABLE_SIZE * sizeof(instruction));
 
     //initialize lexemelist
     for(int i=0;i<2*size;i++){
@@ -1175,7 +1173,7 @@ int main(int argc, char *argv[]){
     seperatetokenStructs(codeArray);
     
     //print lexeme list
-    //printLexemeList();
+    printLexemeList();
 
 
     emit("JMP", 0, 3);
