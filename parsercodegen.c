@@ -19,7 +19,7 @@ int lexemelistIndex = 0;
 int size = 0;
 
 //define global variables HW3
-const int MAX_SYMBOL_TABLE_SIZE = 500;
+#define MAX_SYMBOL_TABLE_SIZE 500
 int token, number;
 char ident[11];
 char *next;
@@ -72,6 +72,10 @@ typedef struct {
 } instruction;
 
 //define structs HW4
+typedef struct {
+    symbol symbolTable[MAX_SYMBOL_TABLE_SIZE];
+} symbolTable_t;
+
 
 //define reserved word arrays
 char *word[ ] ={
@@ -94,34 +98,37 @@ char symbols[] = {'+', '-', '*', '/', '(', ')', '=', ',', '.', '<', '>', ';', ':
 int lenSymbols = 13;
 
 //define symbol table and code
-symbol* symbolTable;          
-instruction* code; 
+symbol symbolTable[MAX_SYMBOL_TABLE_SIZE];
+instruction code[MAX_SYMBOL_TABLE_SIZE];
 
 //function prototypes HW2
 void printLexemeList();
 
 //define functions HW3
 //function prototypes
-void FACTOR();
-void TERM();
-void EXPRESSION();
-void CONDITION();
-void STATEMENT();
-void BLOCK();
+void FACTOR(int lev);
+void TERM(int lev);
+void EXPRESSION(int lev);
+void CONDITION(int lev);
+void STATEMENT(int lev, int *tx);
+void BLOCK(int lev, int tx);
 void PROGRAM();
-void CONST_DECLARATION();
-int VAR_DECLARATION();
-int SYMBOLTABLECHECK(int tokenTemp);
+void CONST_DECLARATION(int lev, int *tx, int *dx);
+int VAR_DECLARATION(int lev, int *tx, int *dx);
+int SYMBOLTABLECHECK(int tokenTemp, int level);
 
 void nextToken();
 void printErrorMessage(const char* errorTerm);
-void addSymbolToTable(int kind);
+void addSymbolToTable(int kind, int *tx, int *dx, int lev);
 
 
-//define functions HW4
-void PROC_DECLARATION();
+//define function prototypes HW4
+void PROC_DECLARATION(int lev, int *tx, int *dx);
+void markSymbolsOutOfScope(int level);
+int isSymbolInScope(char* name, int level);
+void addSymbolToTableTemp(int kind, int level);
 
-
+//begin functions
 void emit(char* op, int L, int M) {
     if (line >= 500) {
         printf("Error: too many instructions\n");
@@ -176,7 +183,7 @@ void nextToken() {
 
 
 //Check if the symbol is in the symbol table
-int SYMBOLTABLECHECK(int tokenTemp){
+int SYMBOLTABLECHECK(int tokenTemp, int level){
     for(int i = 0; i < MAX_SYMBOL_TABLE_SIZE; i++){
         if(strcmp(symbolTable[i].name, ident) == 0){
             return i;
@@ -185,7 +192,7 @@ int SYMBOLTABLECHECK(int tokenTemp){
     return -1;
 };
 //Add a symbol to the symbol table
-void addSymbolToTable(int kind){
+void addSymbolToTable(int kind, int *tx, int *dx, int lev){
     
     symbolTable[numsymbols].kind = kind;
 
@@ -217,7 +224,10 @@ void addSymbolToTable(int kind){
 
 //Program function
 void PROGRAM() {
-    BLOCK();
+    int lev, tx;
+    lev = 0;
+    tx = 0;
+    BLOCK(lev, tx);
 
     if (token != periodsym) {
         printErrorMessage("period");
@@ -228,18 +238,28 @@ void PROGRAM() {
 }
 
 //Block function
-void BLOCK() {
-    CONST_DECLARATION();
-    VAR_DECLARATION();
+void BLOCK(int lev, int tx) {
+    int dx, tx0, cx0;
+    dx=3;
+    tx0=tx;
+    int cx = symbolTable[tx0].addr;
+    symbolTable[tx].addr = cx;
 
-    emit("INC", 0, 3 + numvars); // emit INC
-    PROC_DECLARATION();
+    CONST_DECLARATION(lev,&tx, &dx);
+    VAR_DECLARATION(lev, &tx, &dx);
+    PROC_DECLARATION(lev, &tx, &dx);
 
-    STATEMENT();
+    codeArray[symbolTable[tx0].addr] = cx;
+    symbolTable[tx0].addr = cx;
+    cx0 = cx;
+    //emit("INC", 0, 3 + numvars); // emit INC
+    emit("INC", 0, dx); // emit INC
+
+    STATEMENT(lev, &tx);
 }
 
 //Const declaration function
-void CONST_DECLARATION() {
+void CONST_DECLARATION(int lev, int *tx, int *dx) {
     if (token == constsym) {
         do {
             nextToken(); // consume the 'const' token
@@ -249,7 +269,7 @@ void CONST_DECLARATION() {
                 return;
             }
 
-            if (SYMBOLTABLECHECK(token) != -1) {
+            if (SYMBOLTABLECHECK(token, lev) != -1) {
                 printErrorMessage("symbol");
                 return;
             }
@@ -268,7 +288,7 @@ void CONST_DECLARATION() {
                 return;
             }
 
-            addSymbolToTable(1); // add the constant to the symbol table
+            addSymbolToTable(1,tx,dx,lev); // add the constant to the symbol table
 
             nextToken(); // consume the number token
 
@@ -284,7 +304,7 @@ void CONST_DECLARATION() {
 }
 
 //Var declaration function
-int VAR_DECLARATION(){
+int VAR_DECLARATION(int lev, int *tx, int *dx){
     
     if(token == varsym){
         do{
@@ -296,12 +316,12 @@ int VAR_DECLARATION(){
                 return numvars;
             }
 
-            if(SYMBOLTABLECHECK(token) != -1){
+            if(SYMBOLTABLECHECK(token,lev) != -1){
                 printErrorMessage("symbol");
                 return numvars;
             }
 
-            addSymbolToTable(2); //add to symbol table (kind 2)
+            addSymbolToTable(2, tx, dx, lev); //add to symbol table (kind 2)
             nextToken();
         } while(token == commasym);
 
@@ -317,7 +337,7 @@ int VAR_DECLARATION(){
     return numvars;
 }
 
-void PROC_DECLARATION() {
+void PROC_DECLARATION(int lev, int *tx, int *dx) {
     while (token == procsym) {
         nextToken(); // consume the 'proc' token
 
@@ -326,12 +346,12 @@ void PROC_DECLARATION() {
             return;
         }
 
-        if (SYMBOLTABLECHECK(token) != -1) {
+        if (SYMBOLTABLECHECK(token,lev) != -1) {
             printErrorMessage("symbol");
             return;
         }
 
-        addSymbolToTable(3); // add the procedure to the symbol table
+        addSymbolToTable(3, tx, dx, lev); // add the procedure to the symbol table
 
         nextToken(); // consume the identifier token
 
@@ -342,7 +362,7 @@ void PROC_DECLARATION() {
 
         nextToken(); // consume the ';' token after procedure declaration
 
-        BLOCK(); // Procedure block of code
+        BLOCK(lev+1, *tx); // Procedure block of code
 
         if (token != semicolonsym) {
             printErrorMessage("semicolon");
@@ -350,16 +370,18 @@ void PROC_DECLARATION() {
         }
 
         nextToken(); // consume the ';' token after procedure block
+        
     }
+    markSymbolsOutOfScope(lev); // Mark symbols as out of scope
 }
 
 
 //Statement function
-void STATEMENT(){
+void STATEMENT(int lev, int *tx){
     int symIdx;
     //Ident
     if(token == identsym){
-        symIdx = SYMBOLTABLECHECK(token);
+        symIdx = SYMBOLTABLECHECK(token,lev);
         if(symIdx == -1){
             printErrorMessage("undeclared");
             return;
@@ -374,7 +396,7 @@ void STATEMENT(){
             return;
         }
         nextToken();
-        EXPRESSION();
+        EXPRESSION(lev);
 
         emit("STO", 0, symbolTable[symIdx].addr);
         return;
@@ -385,19 +407,20 @@ void STATEMENT(){
             printErrorMessage("keywords");
             return;
         }
+        
         nextToken();
     }
     //Begin
     else if (token == beginsym) {
         nextToken();
-        STATEMENT();
+        STATEMENT(lev, tx);
         while(token!= semicolonsym && token != 0 && token != endsym){
             nextToken();
         }
         
         while (token == semicolonsym) {
             nextToken();
-            STATEMENT();
+            STATEMENT(lev, tx);
         }
         
 
@@ -412,7 +435,7 @@ void STATEMENT(){
 
     else if (token == ifsym) {
         nextToken();
-        CONDITION();
+        CONDITION(lev);
 
         int jpcIdx = line;
         emit("JPC", 0, 0); 
@@ -423,14 +446,14 @@ void STATEMENT(){
         }
 
         nextToken();
-        STATEMENT();
+        STATEMENT(lev, tx);
 
         code[jpcIdx].addr = line*3; 
     }
     //if else
     else if (token == xorsym) {
         nextToken();
-        CONDITION();
+        CONDITION(lev);
 
         int jpcIdx = line;
         emit("JPC", 0, 0); 
@@ -441,7 +464,7 @@ void STATEMENT(){
         }
 
         nextToken();
-        STATEMENT();
+        STATEMENT(lev, tx);
         //check for semilicon
         if (token != semicolonsym){
             while(token!= semicolonsym && token != 0 && token != endsym){
@@ -464,7 +487,7 @@ void STATEMENT(){
         
 
         code[jpcIdx].addr = line*3; 
-        STATEMENT();
+        STATEMENT(lev, tx);
         code[jmpIdx].addr = line*3;
     }
 
@@ -473,7 +496,7 @@ void STATEMENT(){
 
         int loopIdx = line*3;  
 
-        CONDITION();
+        CONDITION(lev);
 
         if (token != dosym) {
             printErrorMessage("while");
@@ -485,7 +508,7 @@ void STATEMENT(){
         int jpcIdx = line;
         emit("JPC", 0, 0); 
 
-        STATEMENT();
+        STATEMENT(lev, tx);
 
         emit("JMP", 0, loopIdx);
 
@@ -500,7 +523,7 @@ void STATEMENT(){
             return;
         }
         
-        int symIdx = SYMBOLTABLECHECK(token);
+        int symIdx = SYMBOLTABLECHECK(token,lev);
         
         if (symIdx == -1) {
             printErrorMessage("undeclared");
@@ -522,7 +545,7 @@ void STATEMENT(){
     //write
     else if (token == writesym) {
         nextToken();
-        EXPRESSION();
+        EXPRESSION(lev);
 
         emit("SYS", 0, 1);
 
@@ -534,42 +557,42 @@ void STATEMENT(){
 };
 
 //Condition function
-void CONDITION() {
+void CONDITION(int lev) {
     if (token == oddsym) {
         nextToken();
-        EXPRESSION();
+        EXPRESSION(lev);
 
         emit("ODD", 0, 11);
     } else {
-        EXPRESSION();
+        EXPRESSION(lev);
         if (token == eqlsym) {
             nextToken();
-            EXPRESSION();
+            EXPRESSION(lev);
 
             emit("EQL", 0, 5);
         } else if (token == neqsym) {
             nextToken();
-            EXPRESSION();
+            EXPRESSION(lev);
 
             emit("NEQ", 0, 6);
         } else if (token == lessym) {
             nextToken();
-            EXPRESSION();
+            EXPRESSION(lev);
 
             emit("LSS", 0, 7);
         } else if (token == leqsym) {
             nextToken();
-            EXPRESSION();
+            EXPRESSION(lev);
 
             emit("LEQ", 0, 8);
         } else if (token == gtrsym) {
             nextToken();
-            EXPRESSION();
+            EXPRESSION(lev);
 
             emit("GTR", 0, 9);
         } else if (token == geqsym) {
             nextToken();
-            EXPRESSION();
+            EXPRESSION(lev);
 
             emit("GEQ", 0, 10);
         } else {
@@ -578,17 +601,17 @@ void CONDITION() {
     }
 }
 //Expression function
-void EXPRESSION() {
-    TERM();
+void EXPRESSION(int lev) {
+    TERM(lev);
 
     while (token == plussym || token == minussym) {
         if (token == plussym) {
             nextToken();
-            TERM();
+            TERM(lev);
             emit("ADD", 0, 1); // Emit ADD; Assume addition is operation 1 in OPR
         } else {
             nextToken();
-            TERM();
+            TERM(lev);
             emit("SUB", 0, 2); // Emit SUB; Assume subtraction is operation 2 in OPR
         }
     }
@@ -596,28 +619,28 @@ void EXPRESSION() {
 
 
 //Term function
-void TERM() {
-    FACTOR();
+void TERM(int lev) {
+    FACTOR(lev);
     while (token == multsym || token == slashsym) {
         if (token == multsym) {
             nextToken();
-            FACTOR();
+            FACTOR(lev);
 
             emit("MUL", 0, 3); // Emit MUL; Assume multiplication is operation 4 in OPR
         } else { // token == slashsym
             nextToken();
-            FACTOR();
+            FACTOR(lev);
 
             emit("DIV", 0, 4); // Emit DIV; Assume division is operation 5 in OPR
         }
     }
 }
 //Factor function
-void FACTOR() {
+void FACTOR(int lev) {
     int symIdx;
 
     if (token == identsym) {
-        symIdx = SYMBOLTABLECHECK(token);
+        symIdx = SYMBOLTABLECHECK(token,lev);
         if (symIdx == -1) {
             printErrorMessage("undeclared");
             return;
@@ -633,7 +656,7 @@ void FACTOR() {
         nextToken();
     } else if (token == lparentsym) {
         nextToken();
-        EXPRESSION();
+        EXPRESSION(lev);
         if (token != rparentsym) {
             printErrorMessage("parenthesis");
             return;
@@ -690,6 +713,57 @@ void printErrorMessage(const char* errorTerm) {
     
     exit(0);
 }
+
+//functions HW4
+// Function to mark symbols as out of scope (unavailable)
+void markSymbolsOutOfScope(int level) {
+    for (int i = numsymbols - 1; i >= 0; i--) {
+        if (symbolTable[i].level == level) {
+            symbolTable[i].mark = 1; // Set the mark to 1 (unavailable) for out-of-scope symbols
+        }
+    }
+}
+
+// Function to check if a symbol is in scope (not marked as unavailable)
+int isSymbolInScope(char* name, int level) {
+    for (int i = numsymbols - 1; i >= 0; i--) {
+        if (strcmp(symbolTable[i].name, name) == 0) {
+            if (symbolTable[i].level <= level && symbolTable[i].mark == 0) {
+                return 1; // Symbol is in scope and not marked as unavailable
+            } else {
+                return 0; // Symbol is out of scope or marked as unavailable
+            }
+        }
+    }
+    return 0; // Symbol not found in the symbol table
+}
+
+// Function to add a symbol to the symbol table
+void addSymbolToTableTemp(int kind, int level) {
+    symbolTable[numsymbols].kind = kind;
+
+    // Copy ident to name
+    strncpy(symbolTable[numsymbols].name, ident, sizeof(ident));
+
+    // Set the level of the symbol
+    symbolTable[numsymbols].level = level;
+
+    // Set the mark to 0 (in use) for symbols in the current scope
+    symbolTable[numsymbols].mark = 0;
+
+    if (kind == 1) {
+        symbolTable[numsymbols].val = number;
+        symbolTable[numsymbols].addr = 0;
+    } else if (kind == 2) {
+        symbolTable[numsymbols].addr = numvars + 2;
+        numvars++;
+    } else if (kind == 3) {
+        symbolTable[numsymbols].addr = 0;
+    }
+
+    numsymbols++;
+}
+
 
 //define functions HW2
 //count digits in a number
@@ -1146,8 +1220,6 @@ int main(int argc, char *argv[]){
     //estimated max size is 2*size for lexemelist
     codeArray = malloc(sizeof(char) * size);
     lexemelist = malloc(sizeof(char) * 2*size);
-    symbolTable = malloc(MAX_SYMBOL_TABLE_SIZE * sizeof(symbol));
-    code = malloc(MAX_SYMBOL_TABLE_SIZE * sizeof(instruction));
 
     //initialize lexemelist
     for(int i=0;i<2*size;i++){
@@ -1173,7 +1245,7 @@ int main(int argc, char *argv[]){
     seperatetokenStructs(codeArray);
     
     //print lexeme list
-    printLexemeList();
+    //printLexemeList();
 
 
     emit("JMP", 0, 3);
@@ -1191,6 +1263,12 @@ int main(int argc, char *argv[]){
     }
 
     printAssemblyCode();
+    //print symbol table
+    printf("\n\nSymbol Table:\n");
+    printf("Kind\tName\tValue\tLevel\tAddress\n");
+    for (int i = 0; i < numsymbols; i++) {
+        printf("%d\t%s\t%d\t%d\t%d\n", symbolTable[i].kind, symbolTable[i].name, symbolTable[i].val, symbolTable[i].level, symbolTable[i].addr);
+    }
 
     //free memory
     free(codeArray);
