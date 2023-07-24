@@ -28,6 +28,10 @@ int numvars = 0;
 int numsymbols = 0;
 int line = 0;
 
+//define global variables HW4
+const int LOWERLEVEL = 1000000;
+int levelTemp = 0;
+
 //define variables for lexeme table scanning instead of scanf
 int lexemeTableIndex = 0;
 
@@ -119,16 +123,19 @@ int SYMBOLTABLECHECK(int tokenTemp, int level);
 
 void nextToken();
 void printErrorMessage(const char* errorTerm);
-void addSymbolToTable(int kind, int *tx, int *dx, int lev);
+void addSymbolToTable(int kind, int *tx, int *dx, int lev, int numVarScope);
 
 
 //define function prototypes HW4
 void PROC_DECLARATION(int lev, int *tx, int *dx);
 void markSymbolsOutOfScope(int level);
 int isSymbolInScope(char* name, int level);
-void addSymbolToTableTemp(int kind, int level);
+
+void printSymbolTable();
 
 //begin functions
+
+
 void emit(char* op, int L, int M) {
     if (line >= 500) {
         printf("Error: too many instructions\n");
@@ -184,17 +191,60 @@ void nextToken() {
 
 //Check if the symbol is in the symbol table
 int SYMBOLTABLECHECK(int tokenTemp, int level){
+    //printf("tokenTemp: %d level %d\n", tokenTemp, level);
     for(int i = 0; i < MAX_SYMBOL_TABLE_SIZE; i++){
         if(strcmp(symbolTable[i].name, ident) == 0){
-            return i;
+            if(symbolTable[i].level <= level){
+                return i;   
+            }
         }
     }
     return -1;
 };
+
+int symbolTableCheckAdd(int tokenT, int level){
+    for(int i = 0; i < MAX_SYMBOL_TABLE_SIZE; i++){
+        if(strcmp(symbolTable[i].name, ident) == 0){
+            if(symbolTable[i].level == level){
+                if(symbolTable[i].mark == 0){
+                    return i;
+                }
+            }
+            else if(symbolTable[i].level < level){
+                if(symbolTable[i].mark == 0){
+                    return LOWERLEVEL;
+                }
+            }
+            //return i;
+        }
+    }
+    return -1;
+};
+
+int getSymbolLevel(int tokenT, int level){
+    for(int i = 0; i < MAX_SYMBOL_TABLE_SIZE; i++){
+        if(strcmp(symbolTable[i].name, ident) == 0){
+            if(symbolTable[i].level == level){
+                if(symbolTable[i].mark == 0){
+                    return i;
+                }
+            }
+            else if(symbolTable[i].level < level){
+                if(symbolTable[i].mark == 0){
+                    return symbolTable[i].level;
+                }
+            }
+            //return i;
+        }
+    }
+    return -1;
+};
+
 //Add a symbol to the symbol table
-void addSymbolToTable(int kind, int *tx, int *dx, int lev){
+void addSymbolToTable(int kind, int *tx, int *dx, int lev, int numVarScope){
     
     symbolTable[numsymbols].kind = kind;
+    symbolTable[numsymbols].mark = 0;
 
     // copy ident to name
     strncpy(symbolTable[numsymbols].name, ident, sizeof(ident));
@@ -202,21 +252,22 @@ void addSymbolToTable(int kind, int *tx, int *dx, int lev){
     if(kind == 1){
         symbolTable[numsymbols].val = number;
         
-        symbolTable[numsymbols].level = 0;
+        symbolTable[numsymbols].level = lev;
         symbolTable[numsymbols].addr = 0;
     }
     //Var
     else if(kind == 2){
         
-        symbolTable[numsymbols].level = 0;
+        symbolTable[numsymbols].level = lev;
         int basePointer = 0;
-        symbolTable[numsymbols].addr = numvars + 2;
+        symbolTable[numsymbols].addr = numVarScope+2;
         
     }
     //Proc
     else if(kind == 3){
-        symbolTable[numsymbols].level = 0;
-        symbolTable[numsymbols].addr = 0;
+        symbolTable[numsymbols].level = lev;
+        symbolTable[numsymbols].addr = numVarScope+2;
+
     }
     numsymbols++;
 
@@ -239,27 +290,36 @@ void PROGRAM() {
 
 //Block function
 void BLOCK(int lev, int tx) {
-    int dx, tx0, cx0;
+    int dx, tx0, line0;
     dx=3;
     tx0=tx;
-    int cx = symbolTable[tx0].addr;
-    symbolTable[tx].addr = cx;
+    if(lev==0){
+        emit("JMP", 0, 0);
+    }
+    
+    int tempTemp = (line-1)*3;
+    //symbolTable[tx].addr = line*3;
 
     CONST_DECLARATION(lev,&tx, &dx);
-    VAR_DECLARATION(lev, &tx, &dx);
+    dx += VAR_DECLARATION(lev, &tx, &dx);
     PROC_DECLARATION(lev, &tx, &dx);
 
-    codeArray[symbolTable[tx0].addr] = cx;
-    symbolTable[tx0].addr = cx;
-    cx0 = cx;
+    code[tempTemp].addr = (line)*3;
+    //symbolTable[tx0].addr = line*3;
+    //line0 = line;
     //emit("INC", 0, 3 + numvars); // emit INC
     emit("INC", 0, dx); // emit INC
 
     STATEMENT(lev, &tx);
+    if(lev!=0){
+        emit("RTN", 0, 0); // emit OPR 0 0 (Return)
+    }
+    
 }
 
 //Const declaration function
 void CONST_DECLARATION(int lev, int *tx, int *dx) {
+    int numConstsLocal = 0;
     if (token == constsym) {
         do {
             nextToken(); // consume the 'const' token
@@ -269,9 +329,11 @@ void CONST_DECLARATION(int lev, int *tx, int *dx) {
                 return;
             }
 
-            if (SYMBOLTABLECHECK(token, lev) != -1) {
+            if (symbolTableCheckAdd(token, lev) != -1) {
+                
                 printErrorMessage("symbol");
                 return;
+                
             }
 
             nextToken(); // consume the identifier token
@@ -288,7 +350,7 @@ void CONST_DECLARATION(int lev, int *tx, int *dx) {
                 return;
             }
 
-            addSymbolToTable(1,tx,dx,lev); // add the constant to the symbol table
+            addSymbolToTable(1,tx,dx,lev,numConstsLocal); // add the constant to the symbol table
 
             nextToken(); // consume the number token
 
@@ -305,23 +367,34 @@ void CONST_DECLARATION(int lev, int *tx, int *dx) {
 
 //Var declaration function
 int VAR_DECLARATION(int lev, int *tx, int *dx){
-    
+    int temp2 = 0;
     if(token == varsym){
         do{
             numvars++;
+            temp2++;
             nextToken();
 
             if(token != identsym){
                 printErrorMessage("keywords");
-                return numvars;
+                return temp2;
+            }
+            int temp = symbolTableCheckAdd(token, lev);
+            if(temp == LOWERLEVEL || temp != -1){
+                if(temp == LOWERLEVEL){
+                    //int temp2 = getSymbolLevel(token, lev);
+
+                }
+                else{
+                    printErrorMessage("symbol");
+                    return temp2;
+                }
             }
 
-            if(SYMBOLTABLECHECK(token,lev) != -1){
-                printErrorMessage("symbol");
-                return numvars;
+            if(temp == -1){
+                addSymbolToTable(2, tx, dx, lev,temp2); //add to symbol table (kind 2)
             }
 
-            addSymbolToTable(2, tx, dx, lev); //add to symbol table (kind 2)
+            
             nextToken();
         } while(token == commasym);
 
@@ -334,10 +407,11 @@ int VAR_DECLARATION(int lev, int *tx, int *dx){
      
     }
 
-    return numvars;
+    return temp2;
 }
 
 void PROC_DECLARATION(int lev, int *tx, int *dx) {
+    int numProc = 0;
     while (token == procsym) {
         nextToken(); // consume the 'proc' token
 
@@ -345,13 +419,16 @@ void PROC_DECLARATION(int lev, int *tx, int *dx) {
             printErrorMessage("keywords");
             return;
         }
+        int temp = symbolTableCheckAdd(token, lev);
 
-        if (SYMBOLTABLECHECK(token,lev) != -1) {
+        if (temp != -1) {
             printErrorMessage("symbol");
             return;
         }
-
-        addSymbolToTable(3, tx, dx, lev); // add the procedure to the symbol table
+        numProc++;
+        addSymbolToTable(3, tx, dx, lev, numProc); // add the procedure to the symbol table
+        
+        int addrTemp = numsymbols-1;
 
         nextToken(); // consume the identifier token
 
@@ -361,9 +438,11 @@ void PROC_DECLARATION(int lev, int *tx, int *dx) {
         }
 
         nextToken(); // consume the ';' token after procedure declaration
-
+        
         BLOCK(lev+1, *tx); // Procedure block of code
-
+        markSymbolsOutOfScope(lev+1); // Mark symbols as out of scope
+        //symbolTable[addrTemp].addr = line*3; // Set the address of the procedure in the symbol table
+        
         if (token != semicolonsym) {
             printErrorMessage("semicolon");
             return;
@@ -372,7 +451,7 @@ void PROC_DECLARATION(int lev, int *tx, int *dx) {
         nextToken(); // consume the ';' token after procedure block
         
     }
-    markSymbolsOutOfScope(lev); // Mark symbols as out of scope
+    
 }
 
 
@@ -397,8 +476,12 @@ void STATEMENT(int lev, int *tx){
         }
         nextToken();
         EXPRESSION(lev);
-
-        emit("STO", 0, symbolTable[symIdx].addr);
+        printf("STO\t%s\t%d\t%d\n",symbolTable[symIdx].name, symbolTable[symIdx].level, symbolTable[symIdx].addr);
+        
+        emit("STO", lev-symbolTable[symIdx].level, symbolTable[symIdx].addr);
+        
+        
+        
         return;
     }
     else if (token == callsym){
@@ -407,7 +490,16 @@ void STATEMENT(int lev, int *tx){
             printErrorMessage("keywords");
             return;
         }
-        
+        int index = SYMBOLTABLECHECK(token, lev);
+        if(index == -1){
+            printErrorMessage("undeclared");
+            return;
+        }
+        if(symbolTable[index].kind != 3){
+            printErrorMessage("call");
+            return;
+        }
+        emit("CAL", lev-symbolTable[index].level, symbolTable[index].addr);
         nextToken();
     }
     //Begin
@@ -538,7 +630,8 @@ void STATEMENT(int lev, int *tx){
         nextToken();
 
         emit("SYS", 0, 2);
-        emit("STO", 0, symbolTable[symIdx].addr);
+        printf("STO\t%s\t%d\t%d\n",symbolTable[symIdx].name, symbolTable[symIdx].level, symbolTable[symIdx].addr);
+        emit("STO", symbolTable[symIdx].level, symbolTable[symIdx].addr);
 
         return;
     }
@@ -648,7 +741,8 @@ void FACTOR(int lev) {
         if (symbolTable[symIdx].kind == 1) { // const
             emit("LIT", 0, symbolTable[symIdx].val);
         } else { // var
-            emit("LOD", 0, symbolTable[symIdx].addr);
+            //emit("LOD", symbolTable[symIdx].level, symbolTable[symIdx].addr);
+            emit("LOD", lev-symbolTable[symIdx].level, symbolTable[symIdx].addr);
         }
         nextToken();
     } else if (token == numbersym) {
@@ -709,8 +803,8 @@ void printErrorMessage(const char* errorTerm) {
     } else {
         printf("Unknown error term.\n");
     }
-
     
+    printSymbolTable();
     exit(0);
 }
 
@@ -1181,6 +1275,7 @@ void printAssemblyCode() {
             opCodeNum = 8;
         else if (strcmp(code[i].OP, "SYS") == 0)
             opCodeNum = 9;
+        
         else if (
             strcmp(code[i].OP, "ADD") == 0 ||
             strcmp(code[i].OP, "SUB") == 0 ||
@@ -1191,7 +1286,8 @@ void printAssemblyCode() {
             strcmp(code[i].OP, "LSS") == 0 ||
             strcmp(code[i].OP, "LEQ") == 0 ||
             strcmp(code[i].OP, "GTR") == 0 ||
-            strcmp(code[i].OP, "GEQ") == 0
+            strcmp(code[i].OP, "GEQ") == 0 || 
+            strcmp(code[i].OP, "RTN") == 0
             )
             opCodeNum = 2;
         else {
@@ -1199,6 +1295,14 @@ void printAssemblyCode() {
             continue;
         }
         fprintf(ofp,"%d\t%d\t%d", opCodeNum, code[i].level, code[i].addr);
+    }
+}
+
+void printSymbolTable(){
+    printf("\n\nSymbol Table:\n");
+    printf("Kind\tName\tValue\tLevel\tAddress\tMark\n");
+    for (int i = 0; i < numsymbols; i++) {
+        printf("%d\t%s\t%d\t%d\t%d\t%d\n", symbolTable[i].kind, symbolTable[i].name, symbolTable[i].val, symbolTable[i].level, symbolTable[i].addr, symbolTable[i].mark);
     }
 }
 
@@ -1248,7 +1352,6 @@ int main(int argc, char *argv[]){
     //printLexemeList();
 
 
-    emit("JMP", 0, 3);
     
 
     nextToken();
@@ -1263,12 +1366,7 @@ int main(int argc, char *argv[]){
     }
 
     printAssemblyCode();
-    //print symbol table
-    printf("\n\nSymbol Table:\n");
-    printf("Kind\tName\tValue\tLevel\tAddress\n");
-    for (int i = 0; i < numsymbols; i++) {
-        printf("%d\t%s\t%d\t%d\t%d\n", symbolTable[i].kind, symbolTable[i].name, symbolTable[i].val, symbolTable[i].level, symbolTable[i].addr);
-    }
+    printSymbolTable();
 
     //free memory
     free(codeArray);
